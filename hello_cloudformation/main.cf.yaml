@@ -1,0 +1,52 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CFormation Hello World
+
+Mappings:
+  Infra:
+    Vpcs:
+      Main: vpc-ab14eccc
+    Subnets:
+      Private:
+      - subnet-1cf55b47
+      - subnet-a4f26dc3
+      Protected:
+      - subnet-18ee717f
+      - subnet-7cf05e27
+      Public:
+      - subnet-8bf35dd0
+      - subnet-ecf16e8b
+
+Resources:
+  # Security Groups
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: webapp-hello-security-group
+      GroupDescription: Web App Security Group, HTTP traffic in, all traffic out, SSH enabled
+      VpcId: !FindInMap [Infra, Vpcs, Main]
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: 80
+        FromPort: 80
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: 22
+        FromPort: 22
+
+  # App Instance
+  App:
+    Type: AWS::EC2::Instance
+    Properties:
+      # Hello Aws Community AMI
+      ImageId: ami-8b5bb6e8
+      InstanceType: t2.micro
+      KeyName: staging-glb
+      SubnetId: !Select [ 0, !FindInMap [Infra, Subnets, Public] ]
+      SecurityGroupIds:
+      - !Ref AppSecurityGroup
+
+Outputs:
+  Application:
+    Description: Main Application
+    Value: !Ref App
