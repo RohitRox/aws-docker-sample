@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR Repository
+
+Parameters:
+  ECRRepoName:
+    Type: String
+    Default: hello_sinatra
+
+Resources:
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ECRRepoName
+
+Outputs:
+  ECRRepositoryArn:
+    Value: !GetAtt "ECRRepository.Arn"
+    Export:
+        Name: 'ECRRepositoryArn'
+  ECRRepositoryUrl:
+    Value: !Join [ ".", [ !Ref "AWS::AccountId", "dkr.ecr", !Ref "AWS::Region", !Join [ "/", [ "amazonaws.com", !Ref ECRRepoName ] ] ] ]
+    Export:
+        Name: 'ECRRepositoryUrl'

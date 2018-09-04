@@ -12,6 +12,6 @@ RUN bundle install
 
 ADD . $APP_ROOT
 
-EXPOSE 9494
+EXPOSE 4567
 
-CMD ["bundle", "exec", "rackup", "config.ru", "-p", "9494", "-o", "0.0.0.0"]
+CMD ["ruby", "app.rb", "-o", "0.0.0.0"]
