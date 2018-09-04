@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Sample tenplate to setup up infrastructure for documentation app, A Beanstalk application, environment and an EC2 for Mongo, also injects Mongo creds into beanstalk environment
+Mappings:
+  Infra:
+    Vpcs:
+      Main: vpc-ab14eccc
+    Subnets:
+      Private:
+      - subnet-1cf55b47
+      - subnet-a4f26dc3
+      Protected:
+      - subnet-18ee717f
+      - subnet-7cf05e27
+      Public:
+      - subnet-8bf35dd0
+      - subnet-ecf16e8b
+    SecurityGroups:
+      GlobalNtp: sg-31b96149
+      GlobalSsh: sg-b0ba62c8
+
+Resources:
+  # Security Groups
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: webapp-security-group
+      GroupDescription: Web App Security Group
+      VpcId: !FindInMap [Infra, Vpcs, Main]
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: 80
+        FromPort: 80
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: 22
+        FromPort: 22
+      Tags:
+      - Key: Name
+        Value: app-generic-staging-cformation
+      - Key: Owner
+        Value: CFormation
+  MongoSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: mongo-security-group
+      GroupDescription: Mongo Group
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        FromPort: 27017
+        ToPort: 27019
+      VpcId: !FindInMap [Infra, Vpcs, Main]
+      Tags:
+      - Key: Name
+        Value: mongo-staging-cformation
+      - Key: Owner
+        Value: CFormation
+  # Mongo Instance
+  Mongo:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-967f9df5
+      InstanceType: t2.small
+      SubnetId: !Select [0, !FindInMap [Infra, Subnets, Protected]]
+      SecurityGroupIds:
+      - !Ref MongoSecurityGroup
+      EbsOptimized: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sdf
+          Ebs:
+            DeleteOnTermination: false
+            VolumeSize: 10
+      Tags:
+      - Key: Name
+        Value: mongo-staging-cformation
+      - Key: Environment
+        Value: staging
+      - Key: Owner
+        Value: CFormation
+
+  # Beanstalk
+  BeanstalkApplication:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: CFormationDocumentation
+      Description: AWS Elastic Beanstalk Docker Sample Application
+  BeanstalkApplicationVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      Description: Initial Version
+      ApplicationName: !Ref BeanstalkApplication
+      SourceBundle:
+        S3Bucket: !Join ['-', ['elasticbeanstalk-samples', !Ref "AWS::Region"]]
+        S3Key: docker-sample.zip
+  BeanstalkEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      EnvironmentName: stag
+      ApplicationName: !Ref BeanstalkApplication
+      TemplateName: !Ref BeanstalkConfigurationTemplate
+      VersionLabel: !Ref BeanstalkApplicationVersion
+    DependsOn:
+    - AppSecurityGroup
+  BeanstalkConfigurationTemplate:
+    Type: AWS::ElasticBeanstalk::ConfigurationTemplate
+    Properties:
+      ApplicationName: !Ref BeanstalkApplication
+      SolutionStackName: 64bit Amazon Linux 2018.03 v2.12.2 running Docker 18.03.1-ce
+      OptionSettings:
+      # Load Balancer and Auto Scale
+      - Namespace: aws:elasticbeanstalk:environment
+        OptionName: EnvironmentType
+        Value: LoadBalanced
+      - Namespace: aws:autoscaling:asg
+        OptionName: MinSize
+        Value: '1'
+      - Namespace: aws:autoscaling:asg
+        OptionName: MaxSize
+        Value: '1'
+      # Launch Configuration
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: EC2KeyName
+        Value: staging-glb
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: IamInstanceProfile
+        Value: aws-elasticbeanstalk-ec2-role
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: SecurityGroups
+        Value: !Join [',', [!Ref AppSecurityGroup]]
+      # VPC
+      - Namespace: aws:ec2:vpc
+        OptionName: VPCId
+        Value: !FindInMap [Infra, Vpcs, Main]
+      - Namespace: aws:ec2:vpc
+        OptionName: Subnets
+        Value: !Join [',', !FindInMap [Infra, Subnets, Public]]
+      - Namespace: aws:ec2:vpc
+        OptionName: ELBSubnets
+        Value: !Join [',', !FindInMap [Infra, Subnets, Public]]
+      # ENV variables
+      - Namespace: aws:elasticbeanstalk:application:environment
+        OptionName: RAILS_ENV
+        Value: staging
+      - Namespace: aws:elasticbeanstalk:application:environment
+        OptionName: MONGO_DB_HOST
+        Value: !Join ['', [!GetAtt Mongo.PrivateDnsName, ':', '27017']]
+      - Namespace: aws:elasticbeanstalk:application:environment
+        OptionName: MONGO_DB_NAME
+        Value: documentation_staging
+      # Health Checks
+      - Namespace: aws:elasticbeanstalk:healthreporting:system
+        OptionName: SystemType
+        Value: "enhanced"
+      #  HTTPS Listeners
+      - Namespace: aws:elb:listener:443
+        OptionName: InstancePort
+        Value: '80'
+      - Namespace: aws:elb:listener:443
+        OptionName: InstanceProtocol
+        Value: HTTP
+      - Namespace: aws:elb:listener:443
+        OptionName: ListenerEnabled
+        Value: 'true'
+      - Namespace: aws:elb:listener:443
+        OptionName: ListenerProtocol
+        Value: HTTPS
+      - Namespace: aws:elb:listener:443
+        OptionName: SSLCertificateId
+        Value: arn:aws:acm:us-west-1:316757257260:certificate/dc2c1676-401f-4eb3-89af-d0ce4f3602c7
+Outputs:
+  Mongo:
+    Description: Mongo
+    Value: !Ref Mongo
+  BeanstalkApplication:
+    Description: Beanstalk Application
+    Value: !Ref BeanstalkApplication
+
+
+
